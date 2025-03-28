@@ -67,6 +67,7 @@ local Library = {
 		[Enum.UserInputType.MouseButton3] = "MB3"
 	};
 	Connections = {};
+	HookedFunctions = {};
 	Font = nil;
 	FontSize = 12;
 	Notifs = {};
@@ -137,17 +138,21 @@ function Library:GetDarkerColor(Color)
 end
 Library.DarkerAccent = Library:GetDarkerColor(Library.Accent)
 function Library:TweenProperty(object, property, endValue, duration)
-	if typeof(object) == "Instance" then
-		local tweenInfo = TweenInfo.new(
-			duration,
-			Enum.EasingStyle.Sine,
-			Enum.EasingDirection.Out
-		)
-		local tween = tweenserv:Create(object, tweenInfo, {[property] = endValue})
-		tween:Play()
-		return tween
-	end
-	return nil
+	local tween
+	pcall(function()
+		if typeof(object) == "Instance" then
+			local tweenInfo = TweenInfo.new(
+				duration,
+				Enum.EasingStyle.Linear,
+				Enum.EasingDirection.Out
+			)
+			tween = tweenserv:Create(object, tweenInfo, {
+				[property] = endValue
+			})
+			tween:Play()
+		end
+	end)
+	return tween
 end
 function Library:Create(Class, Properties, Secure)
 	local instance = Instance.new(Class)
@@ -191,9 +196,27 @@ function Library:Connection(Signal, Callback)
 	return Con
 end
 
+function Library:HookFunction(OldFunction, NewFunction)
+	if isfunctionhooked(OldFunction) then
+		restorefunction(OldFunction)
+	end
+	local Hook = hookfunction(OldFunction, NewFunction)
+	table.insert(Library.HookedFunctions, OldFunction)
+	return Hook
+end
+
+function Library:RestoreFunction(Function)
+	if isfunctionhooked(Function) then
+		restorefunction(Function)
+	end
+	if table.find(Library.HookedFunctions, Function) then
+		table.remove(Library.HookedFunctions, table.find(Library.HookedFunctions, Function))
+	end
+end
+
 function Library:Unload()
 	Library:SetOpen()
-    Library.KeyList:SetVisible(false)
+	Library.KeyList:SetVisible(false)
 	task.wait(0.2)
 	for i, _ in pairs(Flags) do
 		local toggle = Library.Toggles[i]
@@ -207,9 +230,16 @@ function Library:Unload()
 	for _, v in ipairs(Library.Connections) do
 		v:Disconnect()
 	end
+	for _, v in next, Library.HookedFunctions do
+		if isfunctionhooked(v) then
+			restorefunction(v)
+		end
+	end
+	
 	self.Connections = {}
 	task.wait()
-	userinput.MouseIconEnabled = true
+	userinput.MouseIconEnabled = mousestate
+	self = nil
 end
 --
 function Library:AddToThemeObjects(Instance, Properties)
@@ -316,9 +346,6 @@ function Library:Notification(message, duration, color, position)
 			}):Play()
 			tweenserv:Create(Progress, TweenInfo.new(duration or 5, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
 				Size = UDim2.new(1, 0, 0, 2)
-			}):Play()
-			tweenserv:Create(Progress, TweenInfo.new(duration or 5, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), {
-				BackgroundColor3 = Color3.new(0, 1, 0)
 			}):Play()
 			task.wait(duration)
 			tweenserv:Create(Background, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -468,76 +495,108 @@ function Library:LoadConfig(Config)
 	end
 end
 --
-local FadeTime = 0.2
-local Fading = false
 local Toggled = Library.Open
-local TransparencyCache = {}
-
-function Library:SetOpen()
-	if Fading then
-		return
+local ManagementCache = {}
+function Library:ManageTransparency(Object, TableName, FadeTime, State)
+	if not ManagementCache[TableName] then
+		ManagementCache[TableName] = {}
 	end
 	
-	Fading = true
-	Toggled = not Toggled
-
-	if Toggled then
-		Library.Holder.Visible = true
+	local TransparencyCache = ManagementCache[TableName]
+	if Object:IsA('ImageLabel') or Object:IsA('ImageButton') then
+		TransparencyCache[Object] = {
+			ImageTransparency = Object.ImageTransparency,
+			BackgroundTransparency = Object.BackgroundTransparency
+		}
+	elseif Object:IsA('TextLabel') or Object:IsA('TextBox') or Object:IsA('TextButton') then
+		TransparencyCache[Object] = {
+			TextTransparency = Object.TextTransparency,
+			TextStrokeTransparency = Object.TextStrokeTransparency,
+			BackgroundTransparency = Object.BackgroundTransparency
+		}
+	elseif Object:IsA('Frame') or Object:IsA('ScrollingFrame') then
+		TransparencyCache[Object] = {
+			BackgroundTransparency = Object.BackgroundTransparency
+		}
 	end
-	for _, Desc in ipairs(Library.Holder:GetDescendants()) do
-		local Properties = {}
+	if Object:IsA("GuiObject") then
+		TransparencyCache[Object].Transparency = Object.Transparency
+	end
+	for _, Desc in ipairs(Object:GetDescendants()) do
+		if not TransparencyCache[Desc] then
+			TransparencyCache[Desc] = {}
 
-		if Desc:IsA('ImageLabel') then
-			table.insert(Properties, 'ImageTransparency')
-			table.insert(Properties, 'BackgroundTransparency')
-		elseif Desc:IsA('TextLabel') or Desc:IsA('TextBox') then
-			table.insert(Properties, 'TextTransparency')
-		elseif Desc:IsA('Frame') or Desc:IsA('ScrollingFrame') then
-			table.insert(Properties, 'BackgroundTransparency')
-		elseif Desc:IsA('UIStroke') then
-			table.insert(Properties, 'Transparency')
-		end
-
-		local Cache = TransparencyCache[Desc] or {}
-		TransparencyCache[Desc] = Cache
-
-		for _, Prop in ipairs(Properties) do
-			if Cache[Prop] == nil then
-				Cache[Prop] = Desc[Prop]
+			if Desc:IsA('ImageLabel') or Desc:IsA('ImageButton') then
+				TransparencyCache[Desc] = {
+					ImageTransparency = Desc.ImageTransparency,
+					BackgroundTransparency = Desc.BackgroundTransparency
+				}
+			elseif Desc:IsA('TextLabel') or Desc:IsA('TextBox') or Desc:IsA('TextButton') then
+				TransparencyCache[Desc] = {
+					TextTransparency = Desc.TextTransparency,
+					TextStrokeTransparency = Desc.TextStrokeTransparency,
+					BackgroundTransparency = Desc.BackgroundTransparency
+				}
+			elseif Desc:IsA('Frame') or Desc:IsA('ScrollingFrame') then
+				TransparencyCache[Desc] = {
+					BackgroundTransparency = Desc.BackgroundTransparency
+				}
 			end
+			if Desc:IsA("GuiObject") then
+				TransparencyCache[Desc].Transparency = Desc.Transparency
+			end
+		end
+		if State then
+			Library:TweenProperty(Desc, "Transparency", 1, FadeTime)
+			task.delay(FadeTime, function()
+				Object.Visible = false
+			end)
+		else
+			Object.Visible = true
+			for Prop, OriginalValue in pairs(TransparencyCache[Desc]) do
+				Library:TweenProperty(Desc, Prop, OriginalValue, FadeTime)
+			end
+		end
+	end
+end
 
-			local targetTransparency = Toggled and Cache[Prop] or 1
-			tweenserv:Create(
-				Desc,
-				TweenInfo.new(FadeTime, Enum.EasingStyle.Linear),
-				{[Prop] = targetTransparency}
-			):Play()
+mousestate = userinput.MouseIconEnabled
+local Old_new
+Old_new = hookmetamethod(game, "__newindex", function(t, i, v)
+	if not checkcaller() and i == "MouseIconEnabled" then
+		mousestate = v
+		if Toggled then
+			return
 		end
 	end
 
-	task.wait(FadeTime)
+	return Old_new(t, i, v)
+end)
 
+function Library:SetOpen()
+	Toggled = not Toggled
 	Library.Holder.Visible = Toggled
 	userinput.MouseIconEnabled = not Toggled
 	Library.Open = Toggled
-
-	Fading = false
+	if not Toggled then
+		userinput.MouseIconEnabled = mousestate
+	end
 end
 --
 function Library:ChangeAccent()
-    for _, Object in next, Library.ThemeObjects do
-        for Property, ColorIdx in next, Object.Properties do
-            if type(ColorIdx) == 'string' then
-                if Object.Instance and Object.Instance:IsA("GuiObject") then
-                    Library:TweenProperty(Object.Instance, Property, Library[ColorIdx], 0.2)
-                else
-                    Object.Instance[Property] = Library[ColorIdx]
-                end
-            elseif type(ColorIdx) == 'function' then
-                Object.Instance[Property] = ColorIdx()
-            end
-        end
-    end
+	for _, Object in next, Library.ThemeObjects do
+		for Property, ColorIdx in next, Object.Properties do
+			if type(ColorIdx) == 'string' then
+				if Object.Instance and Object.Instance:IsA("GuiObject") then
+					Library:TweenProperty(Object.Instance, Property, Library[ColorIdx], 0.2)
+				else
+					Object.Instance[Property] = Library[ColorIdx]
+				end
+			elseif type(ColorIdx) == 'function' then
+				Object.Instance[Property] = ColorIdx()
+			end
+		end
+	end
 end
 --
 function Library:IsMouseOverFrame(Frame)
@@ -648,21 +707,21 @@ function Library:KeybindList()
 	
 
 	function KeyList:SetVisible(State)
-        Library:TweenProperty(KeybindOuter, "Transparency", State and 0 or 1, 0.2)
 		KeybindOuter.Visible = State
 	end
-	function KeyList:NewKey(Name, Key, Mode)
+	function KeyList:NewKey(Key, Name, Mode)
 		if not Key or Key == "" then
 			return
 		end
 		local KeyValue = {}
+		local TextShit = Mode and tostring(" [" .. Key .. "] " .. Name .. " (" .. Mode .. ") ") or tostring(" [" .. Key .. "] " .. Name)
 		local NewValue = Library:Create('TextLabel', {
 			Parent = KeybindContainer,
 			Size = UDim2.new(1, -10, 0, 15),
 			BackgroundColor3 = Color3.new(1, 1, 1),
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
-			Text = tostring(" [" .. Key .. "] " .. Name .. " (" .. Mode .. ") "),
+			Text = TextShit,
 			TextColor3 = Color3.new(0.5686, 0.5686, 0.5686),
 			FontFace = Library.Font,
 			TextSize = 12,
@@ -676,8 +735,9 @@ function Library:KeybindList()
 			NewValue.Visible = value
 			UpdateSize()
 		end
-		function KeyValue:Update(NewName, NewKey, NewMode)
-			NewValue.Text = tostring(" [" .. NewKey .. "] " .. NewName .. " (" .. NewMode .. ") ")
+		function KeyValue:Update(NewKey, NewName, NewMode)
+			local NLECHOPPAWTF = NewMode and tostring(" [" .. NewKey .. "] " .. NewName .. " (" .. NewMode .. ") ") or tostring(" [" .. NewKey .. "] " .. NewName)
+			NewValue.Text = NLECHOPPAWTF
 			NewValue.Visible = true
 			UpdateSize()
 		end
@@ -938,7 +998,7 @@ function Library:LoadConfigTab(Window)
 
 				local selectedTheme = themes[v]
 				if selectedTheme then
-					for i,v in pairs(selectedTheme) do
+					for i, v in pairs(selectedTheme) do
 						Library[i] = Color3.fromHex(v)
 					end
 					Library.DarkerAccent = Library:GetDarkerColor(Library.Accent)
@@ -1017,7 +1077,6 @@ function Library:LoadConfigTab(Window)
 		Menu:Toggle({
 			Name = "Keybind List",
 			Flag = "KeybindList",
-			State = true,
 			Callback = function(v)
 				Library.KeyList:SetVisible(v)
 			end
@@ -1125,6 +1184,7 @@ function Library:LoadConfigTab(Window)
 			Name = "Current Auto Load:",
 			Centered = true
 		})
+		Library:SetOpen()
 		if isfile(ConfigFolder .. "/autoload.txt") then
 			loadedcfgshit = readfile(ConfigFolder .. "/autoload.txt")
 			local configFile = ConfigFolder .. "/configs/" .. loadedcfgshit
@@ -1163,12 +1223,13 @@ function Library:NewPicker(default, parent, count, flag, callback)
 	local ColorWindow = Library:Create('Frame', {
 		Parent = parent,
 		Position = UDim2.new(1, -2, 1, 2),
-		Size = UDim2.new(0, 0, 0, 0),
+		Size = UDim2.new(0, 188, 0, 170),
 		BackgroundColor3 = Color3.fromRGB(45, 45, 45),
 		BorderColor3 = Color3.fromRGB(10, 10, 10),
 		AnchorPoint = NewVector2(1, 0),
 		ZIndex = 100,
 		Rotation = 0.00001,
+		Visible = false
 	})
 	local WindowInline = Library:Create('Frame', {
 		Parent = ColorWindow,
@@ -1363,7 +1424,7 @@ function Library:NewPicker(default, parent, count, flag, callback)
 		Library:TweenProperty(Pointer, "Position", UDim2.new(math.clamp(1 - sat, 0.005, 0.995), 0, math.clamp(1 - val, 0.005, 0.995), 0), 0.05)
 		Library:TweenProperty(Color, "BackgroundColor3", Color3.fromHSV(hue, 1, 1), 0.2)
 		Library:TweenProperty(IconInline, "BackgroundColor3", hsv, 0.2)
-        Library:TweenProperty(HueSlide, "Position", UDim2.new(0, 0, math.clamp(hue, 0.005, 0.995), 0), 0.05)
+		Library:TweenProperty(HueSlide, "Position", UDim2.new(0, 0, math.clamp(hue, 0.005, 0.995), 0), 0.05)
 		if flag then
 			Library.Flags[flag] = hsv
 		end
@@ -1384,8 +1445,8 @@ function Library:NewPicker(default, parent, count, flag, callback)
 			if hsv ~= oldcolor then
 				Library:TweenProperty(IconInline, "BackgroundColor3", hsv, 0.2)
 				Library:TweenProperty(Color, "BackgroundColor3", Color3.fromHSV(hue, 1, 1), 0.2)
-                Library:TweenProperty(Pointer, "Position", UDim2.new(math.clamp(1 - sat, 0.005, 0.995), 0, math.clamp(1 - val, 0.005, 0.995), 0), 0.05)
-                Library:TweenProperty(HueSlide, "Position", UDim2.new(0, 0, math.clamp(hue, 0.005, 0.995), 0), 0.05)
+				Library:TweenProperty(Pointer, "Position", UDim2.new(math.clamp(1 - sat, 0.005, 0.995), 0, math.clamp(1 - val, 0.005, 0.995), 0), 0.05)
+				Library:TweenProperty(HueSlide, "Position", UDim2.new(0, 0, math.clamp(hue, 0.005, 0.995), 0), 0.05)
 				if flag then
 					Library.Flags[flag] = hsv
 				end
@@ -1428,9 +1489,11 @@ function Library:NewPicker(default, parent, count, flag, callback)
 			end
 		end
 	end)
+	local function UpdateTransparency(pastebinihateu)
+		Library:ManageTransparency(ColorWindow, "ColorWindow", 0.25, pastebinihateu or ColorWindow.Visible)
+	end
 	Library:Connection(Icon.MouseButton1Down, function()
-		Library:TweenProperty(ColorWindow, "Size", ColorWindow.Size ~= UDim2.new() and UDim2.new() or UDim2.new(0, 188, 0, 170), 0.2)
-		parent.ZIndex = ColorWindow.Size ~= UDim2.new() and 5 or 1
+		UpdateTransparency()
 		if slidinghue then
 			slidinghue = false
 		end
@@ -1438,16 +1501,15 @@ function Library:NewPicker(default, parent, count, flag, callback)
 			slidingsaturation = false
 		end
 	end)
-    Library:Connection(userinput.InputBegan, function(Input)
-        if ColorWindow.Size ~= UDim2.new() and Input.UserInputType == Enum.UserInputType.MouseButton1 then
-            if not Library:IsMouseOverFrame(ColorWindow) and not Library:IsMouseOverFrame(Icon) then
-                Library:TweenProperty(ColorWindow, "Size", UDim2.new(), 0.2)
-                parent.ZIndex = 1
-            end
-        end
-    end)
+	Library:Connection(userinput.InputBegan, function(Input)
+		if ColorWindow.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if not Library:IsMouseOverFrame(ColorWindow) and not Library:IsMouseOverFrame(Icon) then
+				UpdateTransparency()
+			end
+		end
+	end)
 	Library:Connection(Icon.MouseButton2Down, function()
-		ModeOutline.Visible = not ModeOutline.Visible
+		Library:ManageTransparency(ModeOutline, "ModeOutline1", 0.2, ModeOutline.Visible)
 	end)
 	--
 	Library:Connection(Hold.MouseButton1Down, function()
@@ -1465,7 +1527,7 @@ function Library:NewPicker(default, parent, count, flag, callback)
 	Library:Connection(userinput.InputBegan, function(Input)
 		if ModeOutline.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 then
 			if not Library:IsMouseOverFrame(Icon) then
-				ModeOutline.Visible = false
+				Library:ManageTransparency(ModeOutline, "ModeOutline1", 0.2, ModeOutline.Visible)
 			end
 		end
 	end)
@@ -1474,6 +1536,7 @@ function Library:NewPicker(default, parent, count, flag, callback)
 		set(color)
 	end
 	update()
+	UpdateTransparency(true)
 	return colorpickertypes, ColorWindow
 end
 -- // Doc Functions
@@ -1491,6 +1554,7 @@ do
 			};
 			Size = UDim2.new(0, 580, 0, 625)
 		};
+		Library.Window = Window
 		Library.ScreenGui = Library:Create("ScreenGui", {
 			Parent = gethui(),
 			DisplayOrder = 2
@@ -1501,9 +1565,10 @@ do
 			Size = Window.Size,
 			BackgroundColor3 = "OutlineColor",
 			BorderColor3 = Color3.new(0.0392, 0.0392, 0.0392),
-			AnchorPoint = Vector2.new(0.5, 0.5)
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Visible = false
 		})
-		Library:Create('ImageLabel',{
+		Library:Create('ImageLabel', {
 			Parent = Outline,
 			ImageColor3 = "Accent",
 			Image = getcustomasset(Library.Folder .. "highlight.jpg"),
@@ -1511,7 +1576,7 @@ do
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
 			Size = UDim2.new(1, 40, 1, 40),
-			Position = UDim2.new(0,-20,0,-20),
+			Position = UDim2.new(0, -20, 0, -20),
 			SliceCenter = Rect.new(Vector2.new(21, 21), Vector2.new(79, 79)),
 			ZIndex = -1
 		})
@@ -1619,7 +1684,7 @@ do
 				Page:Turn(Page.Open)
 			end
 		end
-		userinput.MouseIconEnabled = false
+		Library:SetOpen()
 		return setmetatable(Window, Library)
 	end
 	--
@@ -1714,14 +1779,18 @@ do
 		end)
 
 		function Page:Turn(bool)
-			Library:RemoveFromThemeObjects(TabButton)
+			if bool then
+				Library:AddToThemeObjects(TabButton, {
+					TextColor3 = "Accent"
+				})
+			end
 			Page.Open = bool
 			Left.Visible = Page.Open
 			Right.Visible = Page.Open
 			Library:TweenProperty(TabAccent, "Transparency", Page.Open and 0 or 1, 0.25)
-			Library:TweenProperty(TabButton, "TextColor3", Page.Open and Library.Accent or Color3.fromRGB(145, 145, 145), 0.2)
-			if bool then
-				Library:AddToThemeObjects(TabButton, {TextColor3 = "Accent"})
+			Library:TweenProperty(TabButton, "TextColor3", Page.Open and Library.Accent or Color3.fromRGB(145, 145, 145), 0.25)
+			if not bool then
+				Library:RemoveFromThemeObjects(TabButton)
 			end
 		end
 		--
@@ -1961,7 +2030,9 @@ do
 					BackgroundColor3 = "Accent"
 				})
 				if not Toggle.Risky then
-					Library:AddToThemeObjects(Title, {TextColor3 = "FontColor"})
+					Library:AddToThemeObjects(Title, {
+						TextColor3 = "FontColor"
+					})
 				end
 				Library:TweenProperty(Outline, "BackgroundColor3", Library.DarkerAccent, 0.2)
 				Library:TweenProperty(Inline, "BackgroundColor3", Library.Accent, 0.2)
@@ -2015,6 +2086,7 @@ do
 				Mode = (Properties.mode or Properties.Mode or "Toggle"),
 				Ignore = (Properties.ignore or Properties.Ignore or false),
 				UseKey = (Properties.UseKey or false),
+				FuckThisToggle = (Properties.FuckThisToggle or false),
 				Callback = (
 					Properties.callback
 						or Properties.Callback
@@ -2023,13 +2095,7 @@ do
 						or function()
 				end
 				),
-				Flag = (
-					Properties.flag
-						or Properties.Flag
-						or Properties.pointer
-						or Properties.Pointer
-						or Library.NextFlag()
-				),
+				Flag = Toggle.Flag .. " Keybind",
 				Name = Properties.name or Properties.Name or "Keybind",
 				Binding = nil,
 			}
@@ -2066,6 +2132,7 @@ do
 				TextSize = Library.FontSize,
 				TextStrokeTransparency = 0
 			})
+
 			local ModeOutline = Library:Create('Frame', {
 				Parent = NewToggle,
 				Position = UDim2.new(1, 65, 0.5, 0),
@@ -2121,12 +2188,15 @@ do
 				TextStrokeTransparency = 0,
 				ZIndex = 1020000010
 			})
-			self.ListValue = Library.KeyList:NewKey(tostring(Keybind.State):gsub("Enum.KeyCode.", ""), Title.Text, Keybind.Mode)
+			self.ListValue = Library.KeyList:NewKey(tostring(Keybind.State):gsub("Enum.KeyCode.", ""), Title.Text, not Keybind.FuckThisToggle and Keybind.Mode)
 			
 			local c
 			-- // Functions
 			local function set(newkey)
-				local modetable = {"Toggle","Hold"}
+				local modetable = {
+					"Toggle",
+					"Hold"
+				}
 				if string.find(tostring(newkey), "Enum") then
 					if c then
 						c:Disconnect()
@@ -2139,46 +2209,46 @@ do
 					end
 					if newkey == Enum.KeyCode.Backspace or newkey == Enum.KeyCode.Escape then
 						Key = nil
-						if Keybind.UseKey then
-							if Keybind.Flag then
-								Library.Flags[Keybind.Flag] = Key
-							end
-							Keybind.Callback(Key)
+						if Keybind.Flag then
+							Library.Flags[Keybind.Flag] = Key
 						end
+						Keybind.Callback(Key)
 						local text = ""
 						Value.Text = text
-						self.ListValue:Update(text, self.Name, Keybind.Mode)
+						self.ListValue:Update(text, self.Name, not Keybind.FuckThisToggle and Keybind.Mode)
 						self.ListValue:SetVisible(false)
 					elseif newkey ~= nil then
 						Key = newkey
-						if Keybind.UseKey then
-							if Keybind.Flag then
-								Library.Flags[Keybind.Flag] = Key
-							end
-							Keybind.Callback(Key)
+						if Keybind.Flag then
+							Library.Flags[Keybind.Flag] = Key
 						end
+						Keybind.Callback(Key)
 						local text = (Library.Keys[newkey] or tostring(newkey):gsub("Enum.KeyCode.", ""))
 						Value.Text = text
-						self.ListValue:Update(text, self.Name, Keybind.Mode)
+						self.ListValue:Update(text, self.Name, not Keybind.FuckThisToggle and Keybind.Mode)
 					end
 					Library.Flags[Keybind.Flag .. "_KEY"] = newkey
 				elseif table.find(modetable, newkey) then
-					if not Keybind.UseKey then
+					if not Keybind.FuckThisToggle then
 						if Keybind.Mode == "Toggle" then
 							Library:TweenProperty(Toggle, "TextColor3", Library.FontColor, 0.2)
 							Library:TweenProperty(Hold, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
-							Library:AddToThemeObjects(Toggle, {TextColor3 = "FontColor"})
+							Library:AddToThemeObjects(Toggle, {
+								TextColor3 = "FontColor"
+							})
 							Library:RemoveFromThemeObjects(Hold)
 						elseif Keybind.Mode == "Hold" then
 							Library:TweenProperty(Hold, "TextColor3", Library.FontColor, 0.2)
 							Library:TweenProperty(Toggle, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
-							Library:AddToThemeObjects(Hold, {TextColor3 = "FontColor"})
+							Library:AddToThemeObjects(Hold, {
+								TextColor3 = "FontColor"
+							})
 							Library:RemoveFromThemeObjects(Toggle)
 						end
 						Library.Flags[Keybind.Flag .. "_KEY STATE"] = newkey
 						Keybind.Mode = newkey
 						if Key ~= nil then
-							self.ListValue:Update((Library.Keys[Key] or tostring(Key):gsub("Enum.KeyCode.", "")), self.Name, Keybind.Mode)
+							self.ListValue:Update((Library.Keys[Key] or tostring(Key):gsub("Enum.KeyCode.", "")), self.Name, not Keybind.FuckThisToggle and Keybind.Mode)
 						end
 					end
 				else
@@ -2204,39 +2274,65 @@ do
 				end
 			end)
 			--
-			Library:Connection(userinput.InputBegan, function(inp)
-				if not userinput:GetFocusedTextBox() then	
-					if (inp.KeyCode == Key or inp.UserInputType == Key) and not Keybind.Binding and not Keybind.UseKey then
-						if Keybind.Mode == "Hold" then
-							c = Library:Connection(runserv.RenderStepped, function()
-								SetState(true)
-							end)
-						elseif Keybind.Mode == "Toggle" then
-							SetState()
-							if self.Toggled then
-								Library:TweenProperty(Title, "TextColor3", self.Risky and Color3.fromRGB(255, 0, 0) or Library.FontColor, 0.2)
-							else
-								Library:TweenProperty(Title, "TextColor3", self.Risky and Color3.fromRGB(255, 77, 74) or Color3.fromRGB(145, 145, 145), 0.2)
-							end
-						end
-					end
-				end
-			end)
-			--
-			Library:Connection(userinput.InputEnded, function(inp)
-				if not userinput:GetFocusedTextBox() then
-					if Keybind.Mode == "Hold" and not Keybind.UseKey then
-						if Key ~= "" or Key ~= nil then
-							if inp.KeyCode == Key or inp.UserInputType == Key then
-								if c then
-									c:Disconnect()
-									SetState(false)
+			if not Keybind.FuckThisToggle then
+				Library:Connection(userinput.InputBegan, function(inp)
+					if not userinput:GetFocusedTextBox() then	
+						if (inp.KeyCode == Key or inp.UserInputType == Key) and not Keybind.Binding and not Keybind.UseKey then
+							if Keybind.Mode == "Hold" then
+								c = Library:Connection(runserv.RenderStepped, function()
+									SetState(true)
+								end)
+							elseif Keybind.Mode == "Toggle" then
+								SetState()
+								if self.Toggled then
+									Library:TweenProperty(Title, "TextColor3", self.Risky and Color3.fromRGB(255, 0, 0) or Library.FontColor, 0.2)
+								else
+									Library:TweenProperty(Title, "TextColor3", self.Risky and Color3.fromRGB(255, 77, 74) or Color3.fromRGB(145, 145, 145), 0.2)
 								end
 							end
 						end
 					end
-				end
-			end)
+				end)
+				--
+				Library:Connection(userinput.InputEnded, function(inp)
+					if not userinput:GetFocusedTextBox() then
+						if Keybind.Mode == "Hold" and not Keybind.UseKey then
+							if Key ~= "" or Key ~= nil then
+								if inp.KeyCode == Key or inp.UserInputType == Key then
+									if c then
+										c:Disconnect()
+										SetState(false)
+									end
+								end
+							end
+						end
+					end
+				end)
+				--
+				Library:Connection(Outline.MouseButton2Down, function()
+					Library:ManageTransparency(ModeOutline, "ModeOutline2", 0.2, ModeOutline.Visible)
+				end)
+				--
+				Library:Connection(Hold.MouseButton1Down, function()
+					set("Hold")
+					Library:TweenProperty(Hold, "TextColor3", Library.FontColor, 0.2)
+					Library:TweenProperty(Toggle, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
+				end)
+				--
+				Library:Connection(Toggle.MouseButton1Down, function()
+					set("Toggle")
+					Library:TweenProperty(Toggle, "TextColor3", Library.FontColor, 0.2)
+					Library:TweenProperty(Hold, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
+				end)
+				--
+				Library:Connection(userinput.InputBegan, function(Input)
+					if ModeOutline.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 then
+						if not Library:IsMouseOverFrame(ModeOutline) then
+							Library:ManageTransparency(ModeOutline, "ModeOutline2", 0.2, ModeOutline.Visible)
+						end
+					end
+				end)
+			end
 			--
 			Library:Connection(Outline.MouseEnter, function()
 				Library:TweenProperty(Outline, "BorderColor3", Library.Accent, 0.2)
@@ -2244,30 +2340,6 @@ do
 			--
 			Library:Connection(Outline.MouseLeave, function()
 				Library:TweenProperty(Outline, "BorderColor3", Color3.new(0.0392, 0.0392, 0.0392), 0.2)
-			end)
-			--
-			Library:Connection(Outline.MouseButton2Down, function()
-				ModeOutline.Visible = not ModeOutline.Visible
-			end)
-			--
-			Library:Connection(Hold.MouseButton1Down, function()
-				set("Hold")
-				Library:TweenProperty(Hold, "TextColor3", Library.FontColor, 0.2)
-				Library:TweenProperty(Toggle, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
-			end)
-			--
-			Library:Connection(Toggle.MouseButton1Down, function()
-				set("Toggle")
-				Library:TweenProperty(Toggle, "TextColor3", Library.FontColor, 0.2)
-				Library:TweenProperty(Hold, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
-			end)
-			--
-			Library:Connection(userinput.InputBegan, function(Input)
-				if ModeOutline.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 then
-					if not Library:IsMouseOverFrame(ModeOutline) then
-						ModeOutline.Visible = false
-					end
-				end
 			end)
 			--
 			Library.Flags[Keybind.Flag .. "_KEY"] = Keybind.State
@@ -2300,7 +2372,8 @@ do
 						or Properties.Callback
 						or Properties.callBack
 						or Properties.CallBack
-						or function() end
+						or function()
+				end
 				),
 				Flag = (
 					Properties.flag
@@ -2710,10 +2783,11 @@ do
 		local ContainerOutline = Library:Create('Frame', {
 			Parent = NewDrop,
 			Position = UDim2.new(0, 0, 1, 2),
-			Size = UDim2.new(0, 0, 0, 1),
+			Size = UDim2.new(1, -30, 0, 0),
 			BackgroundColor3 = "OutlineColor",
 			BorderColor3 = Color3.new(0.0392, 0.0392, 0.0392),
-			ZIndex = 5
+			ZIndex = 5,
+			Visible = false
 		})
 		local ContainerInline = Library:Create('ScrollingFrame', {
 			Parent = ContainerOutline,
@@ -2733,25 +2807,30 @@ do
 			Parent = ContainerInline,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 		})
-		
+		local sizesaved
 		-- // Connections
 		Library:Connection(Outline.MouseButton1Down, function()
-            Library:TweenProperty(ContainerOutline, "Size", Icon.Text == "+" and UDim2.new(1, -30, 0, 1) or UDim2.new(0,0,0,1), 0.2)
-			-- ContainerOutline.Visible = not ContainerOutline.Visible
-			if Icon.Text == "+" then
+			if not ContainerOutline.Visible then
+				ContainerOutline.Visible = true
+				Library:TweenProperty(ContainerOutline, "Size", sizesaved, 0.25)
 				NewDrop.ZIndex = 2
 				Icon.Text = "-"
 			else
+				Library:TweenProperty(ContainerOutline, "Size", UDim2.new(1, -30, 0, 0), 0.25)
 				NewDrop.ZIndex = 1
 				Icon.Text = "+"
+				task.wait(0.25)
+				ContainerOutline.Visible = false
 			end
 		end)
 		Library:Connection(userinput.InputBegan, function(Input)
-			if Icon.Text == "-" and Input.UserInputType == Enum.UserInputType.MouseButton1 then
+			if ContainerOutline.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 then
 				if not Library:IsMouseOverFrame(ContainerOutline) and not Library:IsMouseOverFrame(NewDrop) then
-					Library:TweenProperty(ContainerOutline, "Size", UDim2.new(0,0,0,1), 0.2)
+					Library:TweenProperty(ContainerOutline, "Size", UDim2.new(1, -30, 0, 0), 0.25)
 					NewDrop.ZIndex = 1
 					Icon.Text = "+"
+					task.wait(0.25)
+					ContainerOutline.Visible = false
 				end
 			end
 		end)
@@ -2763,7 +2842,7 @@ do
 		Library:Connection(NewDrop.MouseLeave, function()
 			Library:TweenProperty(Outline, "BorderColor3", Color3.new(0.0392, 0.0392, 0.0392), 0.2)
 			Library:TweenProperty(Title, "TextColor3", Color3.new(0.5686, 0.5686, 0.5686), 0.2)
-		end)			
+		end)
 		--
 		local chosen = Dropdown.Max and {} or nil
 		--
@@ -2853,7 +2932,7 @@ do
 				--
 				if #tbl ~= 0 then
 					local typeshit = #tbl * 15.5
-					ContainerOutline.Size = UDim2.new(1,-30,0,math.clamp(typeshit,0,155))
+					sizesaved = UDim2.new(1, -30, 0, math.clamp(typeshit, 0, 155))
 				end
 				Dropdown.OptionInsts[option].button = NewOption
 				Dropdown.OptionInsts[option].text = OptionName
@@ -2875,7 +2954,7 @@ do
 				for _, opt in next, option do
 					if table.find(Dropdown.Options, opt) and #chosen < Dropdown.Max then
 						table.insert(chosen, opt)
-						Library:TweenProperty(Dropdown.OptionInsts[opt].text, "TextColor3", Color3.new(1,1,1), 0.2)
+						Library:TweenProperty(Dropdown.OptionInsts[opt].text, "TextColor3", Color3.new(1, 1, 1), 0.2)
 					end
 				end
 				local textchosen = {}
@@ -3117,7 +3196,11 @@ do
 		local c
 		-- // Functions
 		local function set(newkey)
-			local modetable = {"Toggle","Always","Hold"}
+			local modetable = {
+				"Toggle",
+				"Always",
+				"Hold"
+			}
 			if string.find(tostring(newkey), "Enum") then
 				if c then
 					c:Disconnect()
@@ -3164,14 +3247,18 @@ do
 					Library.Flags[Keybind.Flag .. "_KEY STATE"] = newkey
 					Keybind.Mode = newkey
 					if Keybind.Mode == "Toggle" then
-						Library:AddToThemeObjects(Toggle, {TextColor3 = "FontColor"})
+						Library:AddToThemeObjects(Toggle, {
+							TextColor3 = "FontColor"
+						})
 						Library:RemoveFromThemeObjects(Hold)
 						Library:RemoveFromThemeObjects(Always)
 						Library:TweenProperty(Toggle, "TextColor3", Library.FontColor, 0.2)
 						Library:TweenProperty(Hold, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
 						Library:TweenProperty(Always, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
 					elseif Keybind.Mode == "Hold" then
-						Library:AddToThemeObjects(Hold, {TextColor3 = "FontColor"})
+						Library:AddToThemeObjects(Hold, {
+							TextColor3 = "FontColor"
+						})
 						Library:RemoveFromThemeObjects(Toggle)
 						Library:RemoveFromThemeObjects(Always)
 						Library:TweenProperty(Toggle, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
@@ -3184,7 +3271,9 @@ do
 							Library.Flags[Keybind.Flag] = State
 						end
 						Keybind.Callback(true)
-						Library:AddToThemeObjects(Always, {TextColor3 = "FontColor"})
+						Library:AddToThemeObjects(Always, {
+							TextColor3 = "FontColor"
+						})
 						Library:RemoveFromThemeObjects(Toggle)
 						Library:RemoveFromThemeObjects(Hold)
 						Library:TweenProperty(Toggle, "TextColor3", Color3.fromRGB(145, 145, 145), 0.2)
@@ -3274,7 +3363,7 @@ do
 		end)
 		--
 		Library:Connection(Outline.MouseButton2Down, function()
-			ModeOutline.Visible = not ModeOutline.Visible
+			Library:ManageTransparency(ModeOutline, "ModeOutline3", 0.2, ModeOutline.Visible)
 		end)
 		--
 		Library:Connection(NewKey.MouseEnter, function()
@@ -3301,7 +3390,7 @@ do
 		Library:Connection(userinput.InputBegan, function(Input)
 			if ModeOutline.Visible and Input.UserInputType == Enum.UserInputType.MouseButton1 then
 				if not Library:IsMouseOverFrame(ModeOutline) then
-					ModeOutline.Visible = false
+					Library:ManageTransparency(ModeOutline, "ModeOutline3", 0.2, ModeOutline.Visible)
 				end
 			end
 		end)
