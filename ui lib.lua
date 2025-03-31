@@ -119,34 +119,18 @@ writefile(Library.Folder .. "ProggyClean.ttf", game:HttpGet("https://raw.githubu
 
 local Data = {
 	name = "ProggyClean",
-	faces = {},
+	faces = {
+		{
+			name = "Regular",
+			weight = 200,
+			style = "normal",
+			assetId = getcustomasset(Library.Folder .. "ProggyClean.ttf"),
+		},
+	},
 }
+writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
 
--- Try getting the custom asset, skip if it fails
-local success, assetId = pcall(function()
-	return getcustomasset(Library.Folder .. "ProggyClean.ttf")
-end)
-
-if not success then return end -- Stop execution if the executor doesn't support it
-
-table.insert(Data.faces, {
-	name = "Regular",
-	weight = 200,
-	style = "normal",
-	assetId = assetId,
-})
-
--- Try writing the font file, skip if it fails
-pcall(function()
-	writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
-end)
-
--- Try setting the font, skip if it fails
-pcall(function()
-	Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
-end)
-
-
+Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
 
 -- // Functions
 function Library:GetDarkerColor(Color)
