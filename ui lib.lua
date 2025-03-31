@@ -122,29 +122,30 @@ local Data = {
 	faces = {},
 }
 
--- Safely attempt to get the custom asset
+-- Try getting the custom asset, skip if it fails
 local success, assetId = pcall(function()
 	return getcustomasset(Library.Folder .. "ProggyClean.ttf")
 end)
 
-if success then
-	table.insert(Data.faces, {
-		name = "Regular",
-		weight = 200,
-		style = "normal",
-		assetId = assetId,
-	})
+if not success then return end -- Stop execution if the executor doesn't support it
 
-	-- Safely write the file
-	pcall(function()
-		writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
-	end)
+table.insert(Data.faces, {
+	name = "Regular",
+	weight = 200,
+	style = "normal",
+	assetId = assetId,
+})
 
-	-- Safely set the font
-	pcall(function()
-		Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
-	end)
-end
+-- Try writing the font file, skip if it fails
+pcall(function()
+	writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
+end)
+
+-- Try setting the font, skip if it fails
+pcall(function()
+	Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
+end)
+
 
 
 -- // Functions
