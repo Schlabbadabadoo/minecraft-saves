@@ -119,23 +119,39 @@ writefile(Library.Folder .. "ProggyClean.ttf", game:HttpGet("https://raw.githubu
 
 local Data = {
 	name = "ProggyClean",
-	faces = {
-		{
-			name = "Regular",
-			weight = 200,
-			style = "normal",
-			assetId = getcustomasset(Library.Folder .. "ProggyClean.ttf"),
-		},
-	},
+	faces = {},
 }
-writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
 
-Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
+-- Attempt to get the custom asset
+local success, assetId = pcall(function()
+	return getcustomasset(Library.Folder .. "ProggyClean.ttf")
+end)
+
+if success then
+	table.insert(Data.faces, {
+		name = "Regular",
+		weight = 200,
+		style = "normal",
+		assetId = assetId,
+	})
+end
+
+-- Attempt to write the file
+pcall(function()
+	writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
+end)
+
+-- Attempt to set the library font
+pcall(function()
+	Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
+end)
+
 -- // Functions
 function Library:GetDarkerColor(Color)
 	local H, S, V = Color:ToHSV()
 	return Color3.fromHSV(H, S, V / 1.25)
 end
+
 Library.DarkerAccent = Library:GetDarkerColor(Library.Accent)
 function Library:TweenProperty(object, property, endValue, duration)
 	local tween
