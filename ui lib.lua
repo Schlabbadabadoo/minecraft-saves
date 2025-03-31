@@ -122,7 +122,7 @@ local Data = {
 	faces = {},
 }
 
--- Attempt to get the custom asset
+-- Safely attempt to get the custom asset
 local success, assetId = pcall(function()
 	return getcustomasset(Library.Folder .. "ProggyClean.ttf")
 end)
@@ -134,17 +134,18 @@ if success then
 		style = "normal",
 		assetId = assetId,
 	})
+
+	-- Safely write the file
+	pcall(function()
+		writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
+	end)
+
+	-- Safely set the font
+	pcall(function()
+		Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
+	end)
 end
 
--- Attempt to write the file
-pcall(function()
-	writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
-end)
-
--- Attempt to set the library font
-pcall(function()
-	Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
-end)
 
 -- // Functions
 function Library:GetDarkerColor(Color)
