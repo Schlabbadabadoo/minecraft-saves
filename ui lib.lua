@@ -106,9 +106,6 @@ end
 if not isfile(Library.Folder .. "val.jpg") then
 	writefile(Library.Folder .. "val.jpg", game:HttpGet("https://raw.githubusercontent.com/s0opdev/pasta/main/val.png?raw=true"))
 end
-if not isfile(Library.Folder .. "cursor.jpg") then
-	writefile(Library.Folder .. "cursor.jpg", game:HttpGet("https://raw.githubusercontent.com/s0opdev/pasta/main/cursor.png?raw=true"))
-end
 if not isfile(Library.Folder .. "highlight.jpg") then
 	writefile(Library.Folder .. "highlight.jpg", game:HttpGet("https://raw.githubusercontent.com/s0opdev/pasta/main/highlight.png?raw=true"))
 end
@@ -118,41 +115,35 @@ end
 writefile(Library.Folder .. "ProggyClean.ttf", game:HttpGet("https://raw.githubusercontent.com/s0opdev/pasta/main/ProggyClean.ttf?raw=true"))
 
 local Data = {
-	name = "ProggyClean",
-	faces = {},
+    name = "ProggyClean",
+    faces = {},
 }
 
--- Try getting the custom asset, skip if it fails
 local success, assetId = pcall(function()
-	return getcustomasset(Library.Folder .. "ProggyClean.ttf")
+    return getcustomasset(Library.Folder .. "ProggyClean.ttf")
 end)
 
-if not success then return end -- Stop execution if the executor doesn't support it
+if not success then return end
 
 table.insert(Data.faces, {
-	name = "Regular",
-	weight = 200,
-	style = "normal",
-	assetId = assetId,
+    name = "Regular",
+    weight = 200,
+    style = "normal",
+    assetId = assetId,
 })
 
--- Try writing the font file, skip if it fails
 pcall(function()
-	writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
+    writefile(Library.Folder .. "ProggyClean.font", httpserv:JSONEncode(Data))
 end)
 
--- Try setting the font, skip if it fails
 pcall(function()
-	Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
+    Library.Font = Font.new(getcustomasset(Library.Folder .. "ProggyClean.font"))
 end)
-
-
 -- // Functions
 function Library:GetDarkerColor(Color)
 	local H, S, V = Color:ToHSV()
 	return Color3.fromHSV(H, S, V / 1.25)
 end
-
 Library.DarkerAccent = Library:GetDarkerColor(Library.Accent)
 function Library:TweenProperty(object, property, endValue, duration)
 	local tween
@@ -235,15 +226,6 @@ function Library:Unload()
 	Library:SetOpen()
 	Library.KeyList:SetVisible(false)
 	task.wait(0.2)
-	for i, _ in pairs(Flags) do
-		local toggle = Library.Toggles[i]
-		if toggle then
-			toggle:Set(false)
-		end
-	end
-	task.wait()
-	self.ScreenGui:Destroy()
-	task.wait()
 	for _, v in ipairs(Library.Connections) do
 		v:Disconnect()
 	end
@@ -252,10 +234,16 @@ function Library:Unload()
 			restorefunction(v)
 		end
 	end
-	
-	self.Connections = {}
 	task.wait()
-	userinput.MouseIconEnabled = mousestate
+	for i, _ in pairs(Flags) do
+		local toggle = Library.Toggles[i]
+		if toggle then
+			toggle:Set(false)
+		end
+	end
+	task.wait()
+	self.ScreenGui:Destroy()
+	self.Connections = {}
 	self = nil
 end
 --
@@ -512,7 +500,6 @@ function Library:LoadConfig(Config)
 	end
 end
 --
-local Toggled = Library.Open
 local ManagementCache = {}
 function Library:ManageTransparency(Object, TableName, FadeTime, State)
 	if not ManagementCache[TableName] then
@@ -577,28 +564,11 @@ function Library:ManageTransparency(Object, TableName, FadeTime, State)
 	end
 end
 
-mousestate = userinput.MouseIconEnabled
-local Old_new
-Old_new = hookmetamethod(game, "__newindex", function(t, i, v)
-	if not checkcaller() and i == "MouseIconEnabled" then
-		mousestate = v
-		if Toggled then
-			return
-		end
-	end
-
-	return Old_new(t, i, v)
-end)
-
 function Library:SetOpen()
-	Toggled = not Toggled
-	Library.Holder.Visible = Toggled
-	userinput.MouseIconEnabled = not Toggled
-	Library.Open = Toggled
-	if not Toggled then
-		userinput.MouseIconEnabled = mousestate
-	end
+    Library.Open = not Library.Open
+    Library.Holder.Visible = Library.Open
 end
+
 --
 function Library:ChangeAccent()
 	for _, Object in next, Library.ThemeObjects do
@@ -1654,18 +1624,6 @@ do
 			TextSize = Library.FontSize,
 			TextStrokeTransparency = 0
 		})
-		local cursor = Library:Create("ImageLabel", {
-			Size = UDim2.new(0, 18, 0, 18),
-			BackgroundTransparency = 1,
-			ImageColor3 = "Accent",
-			Image = getcustomasset(Library.Folder .. "cursor.jpg"),
-			ZIndex = 1020000011,
-			Parent = Library.ScreenGui,
-		})
-		Library:Connection(runserv.RenderStepped, function()
-			cursor.Position = UDim2.new(0, Mouse.X - 6, 0, Mouse.Y - 2)
-			cursor.Visible = Library.Open
-		end)
 		--
 		Library:KeybindList()
 		Library.Holder = Outline
